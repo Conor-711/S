@@ -18,11 +18,12 @@ final class FloatingPanelController: NSPanel {
     // MARK: - Initialization
     
     init<Content: View>(contentRect: NSRect, @ViewBuilder content: () -> Content) {
+        // V10: Use borderless + fullSizeContentView to eliminate any frame/border area
         super.init(
             contentRect: contentRect,
-            styleMask: [.nonactivatingPanel, .titled, .closable, .fullSizeContentView, .hudWindow],
+            styleMask: [.borderless, .fullSizeContentView, .nonactivatingPanel],
             backing: .buffered,
-            defer: false
+            defer: true  // Defer creation to allow configuration before display
         )
         
         configurePanel()
@@ -51,38 +52,126 @@ final class FloatingPanelController: NSPanel {
     // MARK: - Configuration
     
     private func configurePanel() {
+        // V10: Refactored for true transparency (no gray border)
+        
+        // CRITICAL: Set appearance to nil to avoid system styling
+        appearance = nil
+        
+        // 1. Window level and behavior
         level = .floating
-        
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        
         isFloatingPanel = true
         becomesKeyOnlyIfNeeded = true
         
-        titleVisibility = .hidden
+        // 2. TitleBar: Explicit transparent and hidden
         titlebarAppearsTransparent = true
+        titleVisibility = .hidden
         
-        // Phase 3: Enable drag by window background
-        isMovableByWindowBackground = true
-        
-        backgroundColor = NSColor.clear
+        // 3. Backing: Transparent background - USE RGBA COLOR SPACE (not grayscale)
         isOpaque = false
+        backgroundColor = NSColor(red: 0, green: 0, blue: 0, alpha: 0)
         
-        // Phase 3: Enable shadow for better visibility
-        hasShadow = true
+        // 4. Shadow: Disabled (SwiftUI handles its own shadow)
+        hasShadow = false
         
+        // 5. Additional settings
+        isMovableByWindowBackground = true
         animationBehavior = .utilityWindow
-        
-        // Phase 3: Additional shadow configuration
-        invalidateShadow()
     }
     
     private func setupContentView<Content: View>(_ content: Content) {
-        let wrappedContent = AnyView(content)
-        let hosting = NSHostingView(rootView: wrappedContent)
+        // V10: Wrap content with transparent background
+        let wrappedContent = AnyView(
+            content
+                .ignoresSafeArea()
+                .background(Color.clear)
+        )
+        
+        // V10: SOLUTION - Direct hosting view with proper configuration
+        // Create hosting view directly - avoid extra wrapper layers
+        let hosting = TransparentHostingView(rootView: wrappedContent)
         hosting.translatesAutoresizingMaskIntoConstraints = false
         
+        // Store reference
         self.hostingView = hosting
+        
+        // Directly assign hosting view as contentView
         contentView = hosting
+        
+        // V10: CRITICAL - Clear window's backing view layer (contentView.superview)
+        clearWindowBackingLayer()
+        
+        // V10: Deferred transparency
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+            self?.clearWindowBackingLayer()
+            self?.makeAllLayersTransparent()
+        }
+    }
+    
+    /// V10: CRITICAL - Clear the window's backing view layer (the actual source of gray border)
+    private func clearWindowBackingLayer() {
+        // Clear ALL views in the window hierarchy
+        // Start from contentView and go up to find NSThemeFrame
+        var currentView: NSView? = contentView
+        while let view = currentView {
+            view.wantsLayer = true
+            view.layer?.backgroundColor = nil
+            view.layer?.isOpaque = false
+            
+            // Also clear the view's draw background if it has one
+            if let layer = view.layer {
+                layer.sublayers?.forEach { sublayer in
+                    sublayer.backgroundColor = nil
+                    sublayer.isOpaque = false
+                }
+            }
+            
+            currentView = view.superview
+        }
+        
+        // Also ensure contentView layer is transparent
+        contentView?.wantsLayer = true
+        contentView?.layer?.backgroundColor = nil
+        contentView?.layer?.isOpaque = false
+        
+        // Force display update
+        contentView?.superview?.needsDisplay = true
+    }
+    
+    /// V10: Recursively clear all layer backgrounds
+    private func makeAllLayersTransparent() {
+        guard let cv = contentView else { return }
+        
+        // Clear contentView and its layers
+        clearLayerBackgrounds(cv.layer)
+        clearSubviewBackgrounds(cv)
+        
+        // Also clear superview (window backing layer)
+        if let superview = cv.superview {
+            clearLayerBackgrounds(superview.layer)
+        }
+    }
+    
+    private func clearLayerBackgrounds(_ layer: CALayer?) {
+        guard let layer = layer else { return }
+        layer.backgroundColor = nil
+        layer.isOpaque = false
+        
+        if let sublayers = layer.sublayers {
+            for sublayer in sublayers {
+                clearLayerBackgrounds(sublayer)
+            }
+        }
+    }
+    
+    private func clearSubviewBackgrounds(_ view: NSView) {
+        view.wantsLayer = true
+        view.layer?.backgroundColor = nil
+        view.layer?.isOpaque = false
+        
+        for subview in view.subviews {
+            clearSubviewBackgrounds(subview)
+        }
     }
     
     // MARK: - Phase 3: Auto-Resize Support
@@ -108,13 +197,11 @@ final class FloatingPanelController: NSPanel {
             return
         }
         
-        // Ensure minimum size
-        let minWidth: CGFloat = 320
-        let minHeight: CGFloat = 80
-        let maxHeight: CGFloat = 400
+        // V10: Removed minimum size constraints to allow orb (60x60) to display without border
+        let maxHeight: CGFloat = 500
         
-        let newWidth = max(targetSize.width, minWidth)
-        let newHeight = min(max(targetSize.height, minHeight), maxHeight)
+        let newWidth = targetSize.width
+        let newHeight = min(targetSize.height, maxHeight)
         
         // Calculate new frame, keeping top-right anchor
         var newFrame = frame
@@ -205,9 +292,181 @@ final class FloatingPanelController: NSPanel {
                 x: screenFrame.minX + padding,
                 y: screenFrame.minY + padding
             )
+        case .bottomCenter:
+            // V10: Center horizontally at bottom
+            newOrigin = NSPoint(
+                x: screenFrame.midX - panelFrame.width / 2,
+                y: screenFrame.minY + padding
+            )
         }
         
         setFrameOrigin(newOrigin)
+    }
+    
+    // V10: Position for Living Orb with dynamic width
+    func positionForOrb(padding: CGFloat = 20) {
+        guard let screen = NSScreen.main else { return }
+        let screenFrame = screen.visibleFrame
+        
+        // Position at bottom center, accounting for orb size (60pt)
+        let orbSize: CGFloat = 60
+        let newOrigin = NSPoint(
+            x: screenFrame.midX - orbSize / 2,
+            y: screenFrame.minY + padding
+        )
+        
+        setFrameOrigin(newOrigin)
+    }
+    
+    /// Position the panel near the current mouse cursor
+    func positionNearCursor(offset: CGFloat = 50) {
+        let mouseLocation = NSEvent.mouseLocation
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouseLocation, $0.frame, false) }) ?? NSScreen.main else { return }
+        
+        let screenFrame = screen.visibleFrame
+        let panelFrame = frame
+        let orbSize: CGFloat = 60
+        
+        // Position slightly below and to the right of cursor
+        var newX = mouseLocation.x + offset
+        var newY = mouseLocation.y - offset - orbSize
+        
+        // Ensure panel stays within screen bounds
+        if newX + panelFrame.width > screenFrame.maxX {
+            newX = mouseLocation.x - offset - orbSize
+        }
+        if newX < screenFrame.minX {
+            newX = screenFrame.minX + 20
+        }
+        if newY < screenFrame.minY {
+            newY = screenFrame.minY + 20
+        }
+        if newY + panelFrame.height > screenFrame.maxY {
+            newY = screenFrame.maxY - panelFrame.height - 20
+        }
+        
+        setFrameOrigin(NSPoint(x: newX, y: newY))
+    }
+    
+    /// Show the panel with fade-in animation
+    func showWithAnimation(duration: TimeInterval = 0.2) {
+        alphaValue = 0
+        orderFrontRegardless()
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            self.animator().alphaValue = 1
+        }
+    }
+    
+    /// Hide the panel with fade-out animation
+    func hideWithAnimation(duration: TimeInterval = 0.2, completion: (() -> Void)? = nil) {
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = duration
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            self.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            self?.orderOut(nil)
+            completion?()
+        })
+    }
+}
+
+// MARK: - V10: Transparent Background View (Solution B)
+
+/// Custom NSView that overrides draw() to actively draw clear color
+/// This is the KEY fix - it overrides NSThemeFrame's default gray drawing
+class TransparentBackgroundView: NSView {
+    
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setupTransparency()
+    }
+    
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupTransparency()
+    }
+    
+    private func setupTransparency() {
+        wantsLayer = true
+        layer?.backgroundColor = nil
+        layer?.isOpaque = false
+    }
+    
+    /// CRITICAL: Override draw() to actively draw transparent color
+    /// This overrides the system's default gray background drawing
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+    }
+    
+    override var isOpaque: Bool {
+        return false
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        
+        // Also clear superview's layer (NSThemeFrame)
+        superview?.wantsLayer = true
+        superview?.layer?.backgroundColor = nil
+        superview?.layer?.isOpaque = false
+        
+        // Force redraw
+        needsDisplay = true
+    }
+}
+
+// MARK: - V10: Transparent Hosting View
+
+/// Custom NSHostingView subclass that ensures complete transparency
+class TransparentHostingView<Content: View>: NSHostingView<Content> {
+    
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        setupTransparency()
+    }
+    
+    @MainActor required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setupTransparency()
+    }
+    
+    private func setupTransparency() {
+        wantsLayer = true
+        layer?.backgroundColor = nil
+        layer?.isOpaque = false
+    }
+    
+    /// CRITICAL: Override draw() to draw nothing (let SwiftUI handle it)
+    override func draw(_ dirtyRect: NSRect) {
+        // Don't call super - let SwiftUI content draw itself
+        // Draw clear background first
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+        super.draw(dirtyRect)
+    }
+    
+    override var isOpaque: Bool {
+        return false
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setupTransparency()
+        
+        // Clear superview's layer
+        superview?.wantsLayer = true
+        superview?.layer?.backgroundColor = nil
+        superview?.layer?.isOpaque = false
+    }
+    
+    override func layout() {
+        super.layout()
+        layer?.backgroundColor = nil
+        layer?.isOpaque = false
     }
 }
 
@@ -218,6 +477,7 @@ enum PanelCorner {
     case topLeft
     case bottomRight
     case bottomLeft
+    case bottomCenter  // V10: Living Orb default position
 }
 
 // MARK: - KeyableFloatingPanel
@@ -230,7 +490,7 @@ final class KeyableFloatingPanel: NSPanel {
     init<Content: View>(contentRect: NSRect, @ViewBuilder content: () -> Content) {
         super.init(
             contentRect: contentRect,
-            styleMask: [.nonactivatingPanel, .titled, .closable, .fullSizeContentView, .hudWindow],
+            styleMask: [.nonactivatingPanel, .borderless, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )

@@ -2,7 +2,9 @@ import Foundation
 import AppKit
 import Combine
 
-/// Global state manager for the AI Navigator application
+/// Simplified Global state manager for the AI Navigator application
+/// V13: Removed URL processing, step buffer, and TR-P-D flow
+/// Kept: Screen capture, VLM AI system, gesture triggers
 @MainActor
 @Observable
 final class AppState {
@@ -12,16 +14,19 @@ final class AppState {
     var currentImage: NSImage?
     var currentInstruction: String = "Ready to assist..."
     var isProcessing: Bool = false
-    var sessionContext: SessionContext?
     var captureError: String?
     
     // MARK: - Services
     
     let captureService: ScreenCaptureService
-    let llmService: QwenLLMService
-    let hudViewModel: HUDViewModel
-    let agentController: AgentLogicController
-    let screenManager: ScreenManager
+    let llmService: GeminiLLMService
+    let keyMonitor: GlobalKeyMonitor
+    let knowledgeBaseService: KnowledgeBaseService
+    let inputMonitor: InputMonitor
+    let connectorService: ConnectorService
+    
+    // V1.1: Pipeline controller for Visual ETL
+    let pipelineController: PipelineController
     
     // MARK: - Private Properties
     
@@ -31,28 +36,28 @@ final class AppState {
     
     init() {
         self.captureService = ScreenCaptureService()
-        self.llmService = QwenLLMService()
-        self.agentController = AgentLogicController()
-        self.hudViewModel = HUDViewModel()
-        self.screenManager = ScreenManager()
+        self.llmService = GeminiLLMService()
+        self.keyMonitor = GlobalKeyMonitor()
+        self.knowledgeBaseService = KnowledgeBaseService(llmService: llmService, captureService: captureService)
+        self.inputMonitor = InputMonitor()
+        self.connectorService = ConnectorService(captureService: captureService, llmService: llmService)
+        self.pipelineController = PipelineController(llmService: llmService, captureService: captureService)
         
         setupBindings()
-        setupScreenManager()
+        setupInputMonitor()
     }
     
     // MARK: - Public Methods
     
-    /// Start a new session and boot up the capture service
+    /// Start a new session (request permission)
     func startSession() {
         print("🚀 [AppState] Starting session...")
-        sessionContext = SessionContext(userGoal: "")
         
         Task {
             let hasPermission = await captureService.requestPermission()
             
             if hasPermission {
-                print("🚀 [AppState] Permission granted, starting capture polling")
-                captureService.startPolling(interval: 2.0)
+                print("🚀 [AppState] Permission granted, capture ready")
             } else {
                 print("🚀 [AppState] Permission DENIED")
                 captureError = "Screen capture permission denied. Please grant permission in System Preferences > Privacy & Security > Screen Recording."
@@ -63,28 +68,18 @@ final class AppState {
     /// Stop the current session
     func stopSession() {
         captureService.stopPolling()
-        sessionContext = nil
         currentImage = nil
         currentInstruction = "Session ended"
     }
     
-    /// Set a new user goal and begin task planning
-    func setGoal(_ goal: String) {
-        guard var context = sessionContext else {
-            sessionContext = SessionContext(userGoal: goal)
-            return
-        }
-        
-        context.userGoal = goal
-        sessionContext = context
-        
-        hudViewModel.startTask(goal: goal)
-    }
-    
-    /// Process the current screen state
-    func analyzeCurrentScreen() {
-        guard let image = currentImage else { return }
-        hudViewModel.analyzeScreen(image)
+    /// Reset the session
+    func resetSession() {
+        print("🔄 [AppState] Resetting session")
+        captureService.stopPolling()
+        currentImage = nil
+        currentInstruction = "Ready to assist..."
+        isProcessing = false
+        captureError = nil
     }
     
     // MARK: - Private Methods
@@ -107,105 +102,144 @@ final class AppState {
                 self?.captureError = error
             }
             .store(in: &cancellables)
-        
-        // Agent controller bindings (Phase 2)
-        agentController.$currentInstruction
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] instruction in
-                self?.currentInstruction = instruction
-            }
-            .store(in: &cancellables)
-        
-        agentController.$isProcessing
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] processing in
-                self?.isProcessing = processing
-            }
-            .store(in: &cancellables)
-        
-        // Subscribe agent to screen updates
-        agentController.subscribeToScreenUpdates(from: captureService.$currentScreenshot)
-        
-        // Legacy HUDViewModel bindings (fallback)
-        hudViewModel.$currentInstruction
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] instruction in
-                // Only use if agent is idle
-                guard let self = self, self.agentController.agentState == .idle else { return }
-                self.currentInstruction = instruction
-            }
-            .store(in: &cancellables)
-        
-        hudViewModel.$isProcessing
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] processing in
-                guard let self = self, self.agentController.agentState == .idle else { return }
-                self.isProcessing = processing
-            }
-            .store(in: &cancellables)
     }
     
-    // MARK: - Phase 2: Agent Methods
     
-    /// Start the AI agent with a goal
-    func startAgent(goal: String) {
-        guard let image = currentImage else {
-            print("🚀 [AppState] Cannot start agent - no screenshot available")
-            return
-        }
-        
-        agentController.startSession(goal: goal, initialImage: image)
-    }
+    // MARK: - Input Monitor Setup (Double-Cmd + Three-Finger Double-Tap)
     
-    /// Request next step from the agent
-    func requestNextStep() {
-        guard let image = currentImage else { return }
-        
-        Task {
-            await agentController.processNextStep(with: image)
-        }
-    }
-    
-    /// Mark current step as complete
-    func markStepComplete() {
-        agentController.markStepComplete()
-    }
-    
-    /// Reset agent state
-    func resetAgent() {
-        agentController.reset()
-    }
-    
-    // MARK: - Phase 4: Session Reset & Screen Management
-    
-    /// Reset the entire session (clears all data)
-    func resetSession() {
-        print("🔄 [AppState] Resetting session...")
-        
-        // Reset agent
-        agentController.reset()
-        
-        // Reset HUD
-        hudViewModel.reset()
-        
-        // Clear state
-        currentImage = nil
-        currentInstruction = "Ready to assist..."
-        isProcessing = false
-        sessionContext = nil
-        
-        print("🔄 [AppState] Session reset complete")
-    }
-    
-    /// Setup screen manager for multi-monitor support
-    private func setupScreenManager() {
-        screenManager.startTracking()
-        
-        screenManager.onScreenChanged = { [weak self] screen, displayID in
+    private func setupInputMonitor() {
+        let handleTrigger: () -> Void = { [weak self] in
             guard let self = self else { return }
-            
-            print("🖥️ [AppState] Screen changed, updating capture target")
-            self.captureService.updateTargetScreen(displayID: displayID)
+            print("⌨️ [AppState] Gesture trigger -> Capture Visual Note")
+            Task {
+                await self.knowledgeBaseService.captureVisualNote()
+            }
         }
+        
+        inputMonitor.onDoubleCmdTrigger = handleTrigger
+        inputMonitor.onThreeFingerDoubleTap = handleTrigger
+        
+        inputMonitor.startMonitoring()
+        print("⌨️ [AppState] Input Monitor initialized (Double-Cmd + Three-Finger Double-Tap)")
+    }
+    
+    // MARK: - Visual Knowledge Base Methods
+    
+    /// Capture a visual note
+    func captureVisualNote() {
+        Task {
+            await knowledgeBaseService.captureVisualNote()
+        }
+    }
+    
+    /// Generate knowledge report and copy to clipboard
+    func generateKnowledgeReport() {
+        Task {
+            do {
+                try await knowledgeBaseService.generateReportAndCopy()
+                print("📋 [AppState] Knowledge report copied to clipboard!")
+            } catch {
+                print("❌ [AppState] Failed to generate report: \(error)")
+            }
+        }
+    }
+    
+    /// Clear all collected visual notes
+    func clearVisualNotes() {
+        knowledgeBaseService.clearAll()
+    }
+    
+    // MARK: - VLM Analysis
+    
+    /// Analyze current screen with VLM
+    func analyzeCurrentScreen(prompt: String? = nil) async -> String? {
+        guard let image = currentImage else {
+            print("❌ [AppState] No screenshot available for analysis")
+            return nil
+        }
+        
+        isProcessing = true
+        defer { isProcessing = false }
+        
+        let analysisPrompt = prompt ?? "Describe what you see on this screen in detail."
+        return await llmService.analyzeImage(image, prompt: analysisPrompt)
+    }
+    
+    // MARK: - Intelligent Connector Methods
+    
+    /// Capture and route to MCP based on VLM intent classification
+    func captureAndRoute() {
+        Task {
+            await connectorService.captureAndAnalyze()
+        }
+    }
+    
+    /// Execute current pending MCP action immediately
+    func executeConnectorAction() {
+        Task {
+            await connectorService.executeNow()
+        }
+    }
+    
+    /// Cancel pending MCP action
+    func cancelConnectorAction() {
+        connectorService.cancelAction()
+    }
+    
+    /// Switch to secondary intent
+    func switchToSecondaryIntent() {
+        Task {
+            await connectorService.switchToSecondaryIntent()
+        }
+    }
+    
+    /// Test Notion MCP connection
+    func testNotionConnection() {
+        Task {
+            let success = await connectorService.testNotionConnection()
+            if success {
+                print("✅ [AppState] Notion MCP connected successfully")
+            } else {
+                print("❌ [AppState] Notion MCP connection failed")
+            }
+        }
+    }
+    
+    /// Quick note to Notion (bypass VLM classification)
+    func quickNoteToNotion(title: String, content: String) {
+        Task {
+            do {
+                let pageId = try await connectorService.quickNoteToNotion(title: title, content: content)
+                print("✅ [AppState] Quick note created: \(pageId)")
+            } catch {
+                print("❌ [AppState] Quick note failed: \(error)")
+            }
+        }
+    }
+    
+    // MARK: - V1.1 Visual ETL Methods
+    
+    /// Initialize ETL schema (create S page and databases in Notion)
+    /// Creates at workspace level automatically
+    func initializeETLSchema() {
+        Task {
+            do {
+                try await pipelineController.initializeSchema()
+                print("✅ [AppState] ETL schema initialized")
+            } catch {
+                print("❌ [AppState] ETL schema initialization failed: \(error)")
+            }
+        }
+    }
+    
+    /// Check if ETL is ready
+    var isETLReady: Bool {
+        NotionSchemaState.shared.isComplete && NotionOAuth2Service.shared.isAuthenticated
+    }
+    
+    /// Reset ETL configuration
+    func resetETLConfiguration() {
+        NotionSchemaState.shared.clear()
+        print("🔄 [AppState] ETL configuration reset")
     }
 }

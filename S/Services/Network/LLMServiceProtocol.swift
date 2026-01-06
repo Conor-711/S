@@ -1,28 +1,23 @@
 import Foundation
 import AppKit
 
-/// Protocol defining the interface for LLM services
+/// V13: Simplified LLM Service Protocol - VLM analysis only
+/// Removed: Step generation, TR-P-D methods
 protocol LLMServiceProtocol: Sendable {
-    /// Analyze an image using vision model (qwen-vl-plus)
+    
+    /// Analyze an image with a text prompt
     /// - Parameters:
-    ///   - image: The NSImage to analyze
-    ///   - prompt: The text prompt to guide analysis
-    /// - Returns: The analysis result as a string
+    ///   - image: The image to analyze
+    ///   - prompt: The text prompt describing what to analyze
+    /// - Returns: The LLM's analysis as text
     func analyzeImage(_ image: NSImage, prompt: String) async -> String?
     
-    /// Generate text using the planning model (qwen-max)
+    /// Generate text based on a prompt
     /// - Parameters:
-    ///   - prompt: The text prompt
-    ///   - systemPrompt: Optional system prompt for context
-    /// - Returns: The generated text response
+    ///   - prompt: The user prompt
+    ///   - systemPrompt: Optional system prompt to guide the model
+    /// - Returns: The generated text
     func generateText(prompt: String, systemPrompt: String?) async -> String?
-    
-    /// Generate a task plan based on user goal and current screen state
-    /// - Parameters:
-    ///   - goal: The user's stated goal
-    ///   - currentState: Description of the current screen state
-    /// - Returns: Array of TaskStep objects representing the plan
-    func generatePlan(goal: String, currentState: String) async -> [TaskStep]
 }
 
 /// Enum representing available Qwen models
@@ -37,4 +32,6 @@ enum LLMServiceError: Error, Sendable {
     case invalidResponse
     case imageEncodingFailed
     case maxRetriesExceeded
+    case apiError(String)
+    case parsingFailed
 }

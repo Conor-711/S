@@ -1,9 +1,12 @@
 import Foundation
 
 /// Configuration for API keys and secrets
-/// ⚠️ IMPORTANT: Replace the placeholder key with your actual DashScope API key before running
 struct Secrets {
-    /// Alibaba DashScope API Key for Qwen models
-    /// Get your key from: https://dashscope.console.aliyun.com/
-    static let qwenAPIKey = "sk-ce1e928033d54d44940e0acd8a6a963b"
+    /// Google Gemini API Key
+    /// Get your key from: https://aistudio.google.com/app/apikey
+    static let geminiAPIKey = "AIzaSyDL01Qo_CKWrJqvfTUPkOYNu9Ovd2fjzLY"
+    
+    /// xAI Grok API Key (for Twitter/X URL analysis)
+    /// Get your key from: https://console.x.ai/
+    static let grokAPIKey = "xai-IYA7nOYNcB3WZGbElxa8F8vrrSVRqEGJrnbAtaTnR6N2pgNpvqAG7PEIXw6GwEKztEQdJ5FZ3xjuQnoa"
 }

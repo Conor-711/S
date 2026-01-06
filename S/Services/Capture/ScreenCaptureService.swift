@@ -19,7 +19,7 @@ final class ScreenCaptureService: NSObject, ObservableObject {
     private var previousImageData: Data?
     private var stream: SCStream?
     private var streamOutput: StreamOutput?
-    private var targetDisplayID: CGDirectDisplayID?
+    private var currentDisplayID: CGDirectDisplayID?
     
     // MARK: - Public Methods
     
@@ -53,31 +53,12 @@ final class ScreenCaptureService: NSObject, ObservableObject {
         stream = nil
     }
     
-    /// Update the target screen for capture (multi-monitor support)
-    /// - Parameter displayID: The CGDirectDisplayID of the new target display
-    func updateTargetScreen(displayID: CGDirectDisplayID) {
-        print("📸 [ScreenCapture] Switching to display: \(displayID)")
-        targetDisplayID = displayID
-        previousImageData = nil // Reset to force new capture
-        
-        Task {
-            await captureScreen()
-        }
-    }
-    
     /// Capture a single screenshot
     func captureScreen() async {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             
-            // Find the target display or use first available
-            let display: SCDisplay
-            if let targetID = targetDisplayID,
-               let targetDisplay = content.displays.first(where: { $0.displayID == targetID }) {
-                display = targetDisplay
-            } else if let firstDisplay = content.displays.first {
-                display = firstDisplay
-            } else {
+            guard let display = content.displays.first else {
                 captureError = "No display found"
                 return
             }
@@ -121,6 +102,59 @@ final class ScreenCaptureService: NSObject, ObservableObject {
         } catch {
             print("📸 [ScreenCapture] Permission request FAILED: \(error)")
             return false
+        }
+    }
+    
+    // MARK: - Phase 4: Multi-Monitor Support
+    
+    /// Update the target screen for capture
+    /// - Parameter displayID: The CGDirectDisplayID of the target display
+    func updateTargetScreen(displayID: CGDirectDisplayID) {
+        guard displayID != currentDisplayID else { return }
+        
+        print("📸 [ScreenCapture] Switching to display: \(displayID)")
+        currentDisplayID = displayID
+        previousImageData = nil  // Reset to force new capture
+        
+        // Force immediate capture on new display
+        Task {
+            await captureScreenForDisplay(displayID: displayID)
+        }
+    }
+    
+    /// Capture screen for a specific display
+    private func captureScreenForDisplay(displayID: CGDirectDisplayID) async {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+            
+            guard let display = content.displays.first(where: { $0.displayID == displayID }) ?? content.displays.first else {
+                captureError = "Display not found"
+                return
+            }
+            
+            let filter = SCContentFilter(display: display, excludingWindows: [])
+            let configuration = SCStreamConfiguration()
+            configuration.width = Int(display.width)
+            configuration.height = Int(display.height)
+            configuration.pixelFormat = kCVPixelFormatType_32BGRA
+            configuration.showsCursor = true
+            
+            let image = try await SCScreenshotManager.captureImage(
+                contentFilter: filter,
+                configuration: configuration
+            )
+            
+            let nsImage = NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
+            
+            if ImageDiffer.hasImageChanged(nsImage, comparedTo: previousImageData) {
+                previousImageData = ImageDiffer.imageToData(nsImage)
+                currentScreenshot = nsImage
+                print("📸 [ScreenCapture] New screenshot from display \(displayID) (\(image.width)x\(image.height))")
+            }
+            
+        } catch {
+            captureError = "Capture failed: \(error.localizedDescription)"
+            print("📸 [ScreenCapture] ERROR on display \(displayID): \(error)")
         }
     }
 }

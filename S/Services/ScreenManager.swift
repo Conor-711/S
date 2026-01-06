@@ -2,7 +2,8 @@ import Foundation
 import AppKit
 import Combine
 
-/// Service for tracking mouse position and managing multi-monitor support
+/// Service for managing multi-monitor support and following mouse cursor
+/// Phase 4: Tracks mouse position and moves panel/capture to active screen
 @MainActor
 final class ScreenManager: ObservableObject {
     
@@ -11,15 +12,16 @@ final class ScreenManager: ObservableObject {
     @Published private(set) var currentScreen: NSScreen?
     @Published private(set) var currentDisplayID: CGDirectDisplayID?
     
+    // MARK: - Dependencies
+    
+    private weak var floatingPanel: NSPanel?
+    private weak var screenCaptureService: ScreenCaptureService?
+    
     // MARK: - Private Properties
     
     private var mouseMonitor: Any?
     private var pollingTimer: Timer?
-    private var lastScreenFrame: NSRect?
-    
-    // MARK: - Callbacks
-    
-    var onScreenChanged: ((NSScreen, CGDirectDisplayID) -> Void)?
+    private let panelOffset: CGFloat = 20
     
     // MARK: - Initialization
     
@@ -29,34 +31,45 @@ final class ScreenManager: ObservableObject {
     }
     
     deinit {
+        // Remove mouse monitor synchronously (no actor isolation needed)
         if let monitor = mouseMonitor {
             NSEvent.removeMonitor(monitor)
         }
         pollingTimer?.invalidate()
     }
     
-    // MARK: - Public Methods
+    // MARK: - Configuration
     
-    /// Start tracking mouse position to detect screen changes
+    /// Configure the screen manager with dependencies
+    func configure(floatingPanel: NSPanel?, screenCaptureService: ScreenCaptureService?) {
+        self.floatingPanel = floatingPanel
+        self.screenCaptureService = screenCaptureService
+    }
+    
+    // MARK: - Tracking
+    
+    /// Start tracking mouse position for screen changes
     func startTracking() {
-        // Try global monitor first
-        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+        guard mouseMonitor == nil else { return }
+        
+        print("🖥️ [ScreenManager] Starting mouse tracking")
+        
+        // Use global mouse moved monitor
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged]) { [weak self] event in
             Task { @MainActor [weak self] in
-                self?.checkMouseScreen()
+                self?.handleMouseMoved()
             }
         }
         
-        // Also use polling as backup (for when global monitor doesn't fire)
-        pollingTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+        // Also use polling as fallback (every 2 seconds)
+        pollingTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.checkMouseScreen()
+                self?.handleMouseMoved()
             }
         }
         
         // Initial check
-        checkMouseScreen()
-        
-        print("🖥️ [ScreenManager] Started tracking mouse position")
+        handleMouseMoved()
     }
     
     /// Stop tracking mouse position
@@ -65,44 +78,112 @@ final class ScreenManager: ObservableObject {
             NSEvent.removeMonitor(monitor)
             mouseMonitor = nil
         }
-        
         pollingTimer?.invalidate()
         pollingTimer = nil
-        
-        print("🖥️ [ScreenManager] Stopped tracking")
+        print("🖥️ [ScreenManager] Stopped mouse tracking")
     }
     
-    /// Get the display ID for a given screen
-    func displayID(for screen: NSScreen) -> CGDirectDisplayID? {
-        return screen.displayID
-    }
+    // MARK: - Screen Detection
     
-    /// Get all available screens
-    var allScreens: [NSScreen] {
-        return NSScreen.screens
-    }
-    
-    // MARK: - Private Methods
-    
-    private func checkMouseScreen() {
+    /// Handle mouse movement and detect screen changes
+    private func handleMouseMoved() {
         let mouseLocation = NSEvent.mouseLocation
         
         // Find which screen contains the mouse
+        guard let newScreen = screenContaining(point: mouseLocation) else { return }
+        
+        // Check if screen changed
+        let newDisplayID = newScreen.displayID
+        if newDisplayID != currentDisplayID {
+            print("🖥️ [ScreenManager] Screen changed from \(currentDisplayID ?? 0) to \(newDisplayID)")
+            currentScreen = newScreen
+            currentDisplayID = newDisplayID
+            
+            // Move panel to new screen
+            movePanelToScreen(newScreen)
+            
+            // Update capture service target
+            screenCaptureService?.updateTargetScreen(displayID: newDisplayID)
+        }
+    }
+    
+    /// Find the screen containing a point
+    private func screenContaining(point: NSPoint) -> NSScreen? {
         for screen in NSScreen.screens {
-            if screen.frame.contains(mouseLocation) {
-                // Check if screen changed
-                if screen.frame != lastScreenFrame {
-                    lastScreenFrame = screen.frame
-                    currentScreen = screen
-                    
-                    if let displayID = screen.displayID {
-                        currentDisplayID = displayID
-                        print("🖥️ [ScreenManager] Screen changed to display \(displayID)")
-                        onScreenChanged?(screen, displayID)
-                    }
-                }
-                break
+            if screen.frame.contains(point) {
+                return screen
             }
+        }
+        return NSScreen.main
+    }
+    
+    // MARK: - Panel Movement
+    
+    /// Move the floating panel to a new screen (bottom position)
+    private func movePanelToScreen(_ screen: NSScreen) {
+        guard let panel = floatingPanel else { return }
+        
+        let screenFrame = screen.visibleFrame
+        let panelSize = panel.frame.size
+        
+        // Position at bottom center of the screen
+        let newOrigin = NSPoint(
+            x: screenFrame.midX - panelSize.width / 2,
+            y: screenFrame.minY + panelOffset
+        )
+        
+        // Animate the move
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.3
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrameOrigin(newOrigin)
+        }
+        
+        print("🖥️ [ScreenManager] Moved panel to screen at (\(Int(newOrigin.x)), \(Int(newOrigin.y)))")
+    }
+    
+    /// Manually move panel to a specific corner on current screen
+    func movePanelToCorner(_ corner: PanelCorner) {
+        guard let panel = floatingPanel, let screen = currentScreen else { return }
+        
+        let screenFrame = screen.visibleFrame
+        let panelSize = panel.frame.size
+        
+        var newOrigin: NSPoint
+        
+        switch corner {
+        case .topRight:
+            newOrigin = NSPoint(
+                x: screenFrame.maxX - panelSize.width - panelOffset,
+                y: screenFrame.maxY - panelSize.height - panelOffset
+            )
+        case .topLeft:
+            newOrigin = NSPoint(
+                x: screenFrame.minX + panelOffset,
+                y: screenFrame.maxY - panelSize.height - panelOffset
+            )
+        case .bottomRight:
+            newOrigin = NSPoint(
+                x: screenFrame.maxX - panelSize.width - panelOffset,
+                y: screenFrame.minY + panelOffset
+            )
+        case .bottomLeft:
+            newOrigin = NSPoint(
+                x: screenFrame.minX + panelOffset,
+                y: screenFrame.minY + panelOffset
+            )
+        case .bottomCenter:
+            // V10: Center horizontally at bottom
+            newOrigin = NSPoint(
+                x: screenFrame.midX - panelSize.width / 2,
+                y: screenFrame.minY + panelOffset
+            )
+        }
+        
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.2
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            panel.animator().setFrameOrigin(newOrigin)
         }
     }
 }
@@ -111,9 +192,9 @@ final class ScreenManager: ObservableObject {
 
 extension NSScreen {
     /// Get the CGDirectDisplayID for this screen
-    var displayID: CGDirectDisplayID? {
+    var displayID: CGDirectDisplayID {
         guard let screenNumber = deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
-            return nil
+            return 0
         }
         return CGDirectDisplayID(screenNumber.uint32Value)
     }
