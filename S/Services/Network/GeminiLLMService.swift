@@ -6,7 +6,7 @@ import AppKit
 final class GeminiLLMService: LLMServiceProtocol, @unchecked Sendable {
     private let apiKey: String
     private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models"
-    private let model = "gemini-2.0-flash-exp"
+    private let model = "gemini-2.5-flash-lite"
     private let maxRetries = 2
     
     init(apiKey: String = Secrets.geminiAPIKey) {

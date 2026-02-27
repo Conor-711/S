@@ -78,24 +78,16 @@ final class PipelineController: ObservableObject {
     /// Execute the full ETL pipeline: Capture -> Atomize -> Fit -> Notion
     /// V1.2: Now accepts optional user note for AI enhancement
     /// V1.2: Added retry mechanism (max 3 attempts) for network errors
+    /// V1.3: Saves capture to history for HomeView display
     /// Returns the created Notion page ID, or nil if discarded
     func execute(screenshot: NSImage, userNote: String? = nil) async -> String? {
-        guard schemaState.isComplete else {
-            print("⚠️ [Pipeline] Schema not configured, skipping Notion sync")
-            lastError = "Schema not configured"
-            return nil
-        }
-        
-        guard NotionOAuth2Service.shared.isAuthenticated else {
-            print("⚠️ [Pipeline] Not authenticated with Notion")
-            lastError = "Not authenticated"
-            return nil
-        }
-        
         isProcessing = true
         lastError = nil
         
         defer { isProcessing = false }
+        
+        // V1.3: Always save to capture history first
+        var capturedAtom: Atom? = nil
         
         let maxRetries = 3
         var lastError: Error?
@@ -106,10 +98,27 @@ final class PipelineController: ObservableObject {
                 print("🧠 [Pipeline] Atomizing screenshot\(userNote != nil ? " with user note" : "")... (attempt \(attempt)/\(maxRetries))")
                 let atom = try await atomize(screenshot: screenshot, userNote: userNote)
                 lastAtom = atom
+                capturedAtom = atom
+                
+                // V1.3: Save to capture history
+                CaptureHistoryService.shared.addCapture(screenshot: screenshot, atom: atom)
                 
                 // Step 2: Filter - Check if discard
                 if atom.type == .discard {
                     print("🗑️ [Pipeline] Content discarded by VLM")
+                    return nil
+                }
+                
+                // Check if schema is configured for Notion sync
+                guard schemaState.isComplete else {
+                    print("⚠️ [Pipeline] Schema not configured, skipping Notion sync")
+                    self.lastError = "Schema not configured"
+                    return nil
+                }
+                
+                guard NotionOAuth2Service.shared.isAuthenticated else {
+                    print("⚠️ [Pipeline] Not authenticated with Notion")
+                    self.lastError = "Not authenticated"
                     return nil
                 }
                 
@@ -130,11 +139,19 @@ final class PipelineController: ObservableObject {
                     try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 } else {
+                    // Save to history even on failure
+                    if capturedAtom == nil {
+                        CaptureHistoryService.shared.addCapture(screenshot: screenshot, atom: nil)
+                    }
                     self.lastError = error.localizedDescription
                     print("❌ [Pipeline] Pipeline failed after \(attempt) attempt(s): \(error)")
                     return nil
                 }
             } catch {
+                // Save to history even on failure
+                if capturedAtom == nil {
+                    CaptureHistoryService.shared.addCapture(screenshot: screenshot, atom: nil)
+                }
                 self.lastError = error.localizedDescription
                 print("❌ [Pipeline] Pipeline failed: \(error)")
                 return nil

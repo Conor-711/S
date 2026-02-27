@@ -13,5 +13,17 @@
 			</array>
 		</dict>
 	</array>
+	
+	<!-- Sparkle Auto-Update Configuration -->
+	<key>SUFeedURL</key>
+	<string>https://your-server.com/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>vjk03PJ/IeWcnR7qAfT/hm2btKzms+ciiGQY+gOcqdo=</string>
+	<key>SUEnableAutomaticChecks</key>
+	<true/>
+	<key>SUAllowsAutomaticUpdates</key>
+	<true/>
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
 </dict>
 </plist>

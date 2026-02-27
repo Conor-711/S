@@ -51,19 +51,19 @@ struct MorphingHUDView: View {
         self.onNoteSubmitted = onNoteSubmitted
     }
     
-    // Layout constants
-    private let orbSize: CGFloat = 60
-    private let compactWidth: CGFloat = 300
-    private let compactHeight: CGFloat = 50
-    private let inputWidth: CGFloat = 320
-    private let inputBaseHeight: CGFloat = 56
+    // Layout constants - Card style (Digital Stationery)
+    private let collapsedSize: CGFloat = 48
+    private let compactWidth: CGFloat = 280
+    private let compactHeight: CGFloat = 64
+    private let inputWidth: CGFloat = 300
+    private let inputBaseHeight: CGFloat = 72
     private let maxNoteLength: Int = 1000
     
     // MARK: - Computed Properties
     
     private var currentWidth: CGFloat {
         switch sizeState {
-        case .collapsed: return orbSize
+        case .collapsed: return collapsedSize
         case .compact: return compactWidth
         case .input: return inputWidth
         }
@@ -71,25 +71,24 @@ struct MorphingHUDView: View {
     
     private var currentHeight: CGFloat {
         switch sizeState {
-        case .collapsed: return orbSize
+        case .collapsed: return collapsedSize
         case .compact: return compactHeight
         case .input: return calculatedInputHeight
         }
     }
     
     private var calculatedInputHeight: CGFloat {
-        // Dynamic height based on text content
+        // Dynamic height based on text content - unfold animation
         let lineCount = max(1, userNoteText.components(separatedBy: "\n").count)
-        let estimatedLines = max(lineCount, Int(ceil(Double(userNoteText.count) / 40.0)))
+        let estimatedLines = max(lineCount, Int(ceil(Double(userNoteText.count) / 35.0)))
         let clampedLines = min(max(1, estimatedLines), 5)
-        return inputBaseHeight + CGFloat(clampedLines - 1) * 20
+        return inputBaseHeight + CGFloat(clampedLines - 1) * 22
     }
     
     private var cornerRadius: CGFloat {
         switch sizeState {
-        case .collapsed: return orbSize / 2
-        case .compact: return compactHeight / 2
-        case .input: return 16
+        case .collapsed: return CardDesign.collapsedCornerRadius
+        case .compact, .input: return CardDesign.expandedCornerRadius
         }
     }
     
@@ -105,16 +104,15 @@ struct MorphingHUDView: View {
                 .transition(.scale.combined(with: .opacity))
                 
             case .compact:
-                morphingBackground
+                cardBackground
                 compactContent
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 
             case .input:
-                morphingBackground
+                cardBackground
                 inputContent
-                    .transition(.opacity.combined(with: .scale(scale: 0.98)))
+                    .transition(.opacity.combined(with: .move(edge: .top)))
             }
-            
             
             // Fly-in thumbnail overlay (during capture)
             if showCaptureFlyIn, let thumbnail = capturedThumbnail {
@@ -124,17 +122,13 @@ struct MorphingHUDView: View {
         .frame(width: currentWidth, height: currentHeight)
         .contentShape(morphingShape)
         .clipShape(morphingShape)
-        .overlay(sizeState != .collapsed ? rimLight : nil)
-        .background(
-            morphingShape
-                .fill(Color.clear)
-                .shadow(color: shadowColor.opacity(0.3), radius: 20, x: 0, y: 10)
-        )
+        .overlay(cardBorder)
+        .shadow(color: CardDesign.shadowColor, radius: CardDesign.shadowRadius, x: 0, y: CardDesign.shadowY)
         .background(Color.clear)
         .onHover(perform: handleHover)
-        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: sizeState)
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: sizeState)
         .animation(.spring(response: 0.2, dampingFraction: 0.9), value: feedbackState)
-        .animation(.spring(response: 0.2, dampingFraction: 0.9), value: calculatedInputHeight)
+        .animation(.spring(response: 0.25, dampingFraction: 0.85), value: calculatedInputHeight)
         .onReceive(knowledgeBaseService.$lastCaptureEvent) { event in
             if let event = event {
                 triggerCaptureAnimation(thumbnail: event.thumbnail)
@@ -142,95 +136,36 @@ struct MorphingHUDView: View {
         }
     }
     
-    // MARK: - Morphing Background
+    // MARK: - Card Background (Digital Stationery)
     
-    private var morphingBackground: some View {
-        ZStack {
-            morphingShape
-                .fill(.ultraThinMaterial)
-            
-            morphingShape
-                .fill(
-                    RadialGradient(
-                        colors: [Color.black.opacity(0.15), Color.black.opacity(0.35)],
-                        center: .center,
-                        startRadius: 20,
-                        endRadius: max(currentWidth, currentHeight) * 0.7
-                    )
-                )
-        }
+    private var cardBackground: some View {
+        morphingShape
+            .fill(CardDesign.cardBackground)
     }
     
     private var morphingShape: some Shape {
         RoundedRectangle(cornerRadius: cornerRadius)
     }
     
-    private var rimLight: some View {
+    private var cardBorder: some View {
         RoundedRectangle(cornerRadius: cornerRadius)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [.white.opacity(0.5), .white.opacity(0.1)],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                ),
-                lineWidth: 1
-            )
+            .strokeBorder(CardDesign.border, lineWidth: 1)
     }
     
-    private var shadowColor: Color {
-        switch feedbackState {
-        case .success: return .green
-        case .capturing: return .orange
-        case .idle: return .black
-        }
-    }
-    
-    // MARK: - Recording Indicator
-    
-    private var recordingIndicator: some View {
-        HStack {
-            Spacer()
-            Circle()
-                .fill(Color.red)
-                .frame(width: 8, height: 8)
-                .overlay(
-                    Circle()
-                        .stroke(Color.red.opacity(0.5), lineWidth: 2)
-                        .scaleEffect(1.5)
-                        .opacity(0.8)
-                )
-                .modifier(PulseAnimation())
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .padding(.top, 8)
-    }
-    
-    // MARK: - Compact Content
+    // MARK: - Compact Content (Digital Stationery Card)
     
     private var compactContent: some View {
-        HStack(spacing: 12) {
-            // Left icon
-            Image(systemName: "sparkles")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.cyan, .blue],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-            
-            // Status text
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Ready to capture")
-                    .font(.system(size: 14, weight: .medium, design: .rounded))
-                    .foregroundColor(.white.opacity(0.9))
+        HStack(spacing: 14) {
+            // Left side - status info
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Ready")
+                    .font(.system(size: 15, weight: .medium, design: .serif))
+                    .foregroundColor(CardDesign.textPrimary)
                 
                 if knowledgeBaseService.noteCount > 0 {
-                    Text("\(knowledgeBaseService.noteCount) notes captured")
-                        .font(.system(size: 11, design: .rounded))
-                        .foregroundColor(.cyan.opacity(0.8))
+                    Text("\(knowledgeBaseService.noteCount) notes")
+                        .font(.system(size: 12, weight: .regular))
+                        .foregroundColor(CardDesign.textSecondary)
                 }
             }
             
@@ -239,22 +174,29 @@ struct MorphingHUDView: View {
             // Actions
             compactActions
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
     }
     
     @ViewBuilder
     private var compactActions: some View {
-        HStack(spacing: 8) {
-            // Status indicator
-            HStack(spacing: 4) {
+        HStack(spacing: 10) {
+            // Status indicator - minimal pill style
+            HStack(spacing: 5) {
                 Circle()
-                    .fill(NotionSchemaState.shared.isComplete ? Color.green : Color.orange)
+                    .fill(NotionSchemaState.shared.isComplete ? CardDesign.successGreen : Color.orange)
                     .frame(width: 6, height: 6)
                 
                 Text(NotionSchemaState.shared.isComplete ? "已就绪" : "未配置")
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.white.opacity(0.7))
+                    .foregroundColor(CardDesign.textSecondary)
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color(hex: "F5F5F5"))
+            )
             
             // Generate report button (if notes exist)
             if knowledgeBaseService.noteCount > 0 {
@@ -262,61 +204,65 @@ struct MorphingHUDView: View {
                     Task { await onGenerateReport?() }
                 }) {
                     Image(systemName: "doc.text")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(.cyan)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(CardDesign.textSecondary)
                         .frame(width: 28, height: 28)
+                        .background(
+                            Circle()
+                                .fill(Color(hex: "F5F5F5"))
+                        )
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help("生成报告")
             }
             
-            // Close button
+            // Close button - minimal
             Button(action: { onClose?() }) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(.white.opacity(0.5))
-                    .frame(width: 28, height: 28)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(CardDesign.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .background(
+                        Circle()
+                            .fill(Color(hex: "F5F5F5"))
+                    )
             }
             .buttonStyle(PlainButtonStyle())
         }
     }
     
-    // MARK: - Input Content (V1.2)
+    // MARK: - Input Content (Digital Stationery - No Input Field Feel)
     
     private var inputContent: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 12) {
-                // Left icon
-                Image(systemName: "square.and.pencil")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [.cyan, .blue],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+        VStack(alignment: .leading, spacing: 6) {
+            // Header with character count
+            HStack {
+                Text("Note")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(CardDesign.textSecondary)
                 
-                // Text input
-                NoteTextEditor(
-                    text: $userNoteText,
-                    placeholder: "Any thoughts?",
-                    maxLength: maxNoteLength,
-                    isFocused: $isInputFocused,
-                    onSubmit: submitNote,
-                    onCancel: cancelNote
-                )
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 24)
+                Spacer()
                 
-                // Character count
+                // Character count - subtle
                 Text("\(userNoteText.count)/\(maxNoteLength)")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundColor(userNoteText.count > maxNoteLength * 9 / 10 ? .orange : .white.opacity(0.4))
+                    .font(.system(size: 10, weight: .regular, design: .monospaced))
+                    .foregroundColor(userNoteText.count > maxNoteLength * 9 / 10 ? .orange : CardDesign.textSecondary.opacity(0.6))
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            
+            // Text input - no visible input field, writes directly on card
+            NoteTextEditor(
+                text: $userNoteText,
+                placeholder: "Any thoughts?",
+                maxLength: maxNoteLength,
+                isFocused: $isInputFocused,
+                onSubmit: submitNote,
+                onCancel: cancelNote
+            )
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 28)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
     
     // MARK: - Note Actions
@@ -360,22 +306,26 @@ struct MorphingHUDView: View {
     
     private func captureFlyInOverlay(thumbnail: NSImage) -> some View {
         GeometryReader { geometry in
-            let startPoint = CGPoint(x: geometry.size.width / 2, y: -100)
-            let endPoint = CGPoint(x: orbSize / 2, y: orbSize / 2)
+            let startPoint = CGPoint(x: geometry.size.width / 2, y: -80)
+            let endPoint = CGPoint(x: collapsedSize / 2, y: collapsedSize / 2)
             
             let currentX = startPoint.x + (endPoint.x - startPoint.x) * flyInProgress
             let currentY = startPoint.y + (endPoint.y - startPoint.y) * flyInProgress
-            let currentScale = 1.0 - flyInProgress * 0.8
+            let currentScale = 1.0 - flyInProgress * 0.75
             
             Image(nsImage: thumbnail)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(width: 80, height: 60)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-                .shadow(color: .cyan.opacity(0.5), radius: 10)
+                .frame(width: 72, height: 54)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .strokeBorder(CardDesign.border, lineWidth: 1)
+                )
+                .shadow(color: CardDesign.shadowColor, radius: 8)
                 .scaleEffect(currentScale)
                 .position(x: currentX, y: currentY)
-                .opacity(1.0 - flyInProgress * 0.5)
+                .opacity(1.0 - flyInProgress * 0.4)
         }
     }
     
@@ -483,15 +433,18 @@ struct NoteTextEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.isRichText = false
         textView.allowsUndo = true
-        textView.font = NSFont.systemFont(ofSize: 14, weight: .regular)
-        textView.textColor = NSColor.white.withAlphaComponent(0.9)
+        // Digital Stationery: Serif font for text content
+        textView.font = NSFont(name: "Georgia", size: 14) ?? NSFont.systemFont(ofSize: 14, weight: .regular)
+        // Dark text on white card background
+        textView.textColor = NSColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 1.0) // #111111
         textView.backgroundColor = .clear
         textView.drawsBackground = false
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
         textView.textContainer?.containerSize = NSSize(width: 200, height: CGFloat.greatestFiniteMagnitude)
         textView.textContainer?.widthTracksTextView = true
-        textView.insertionPointColor = NSColor.cyan
+        // Subtle insertion point color
+        textView.insertionPointColor = NSColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 0.8)
         
         // Set placeholder
         textView.placeholderString = placeholder
@@ -501,6 +454,11 @@ struct NoteTextEditor: NSViewRepresentable {
         textView.onCancel = onCancel
         
         scrollView.documentView = textView
+        
+        // Auto-focus when view appears - use async to ensure window is ready
+        DispatchQueue.main.async {
+            textView.window?.makeFirstResponder(textView)
+        }
         
         return scrollView
     }
@@ -512,9 +470,11 @@ struct NoteTextEditor: NSViewRepresentable {
             textView.string = text
         }
         
-        // Handle focus
+        // Handle focus - try multiple times to ensure focus is set
         if isFocused.wrappedValue && textView.window?.firstResponder != textView {
-            textView.window?.makeFirstResponder(textView)
+            DispatchQueue.main.async {
+                textView.window?.makeFirstResponder(textView)
+            }
         }
     }
     
@@ -560,11 +520,11 @@ class NoteNSTextView: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         
-        // Draw placeholder if empty
+        // Draw placeholder if empty - Digital Stationery style
         if string.isEmpty {
             let attrs: [NSAttributedString.Key: Any] = [
-                .foregroundColor: NSColor.white.withAlphaComponent(0.4),
-                .font: NSFont.systemFont(ofSize: 14, weight: .regular)
+                .foregroundColor: NSColor(red: 0.067, green: 0.067, blue: 0.067, alpha: 0.4), // Subtle dark placeholder
+                .font: NSFont(name: "Georgia", size: 14) ?? NSFont.systemFont(ofSize: 14, weight: .regular)
             ]
             let placeholderRect = NSRect(x: 5, y: 0, width: bounds.width - 10, height: bounds.height)
             placeholderString.draw(in: placeholderRect, withAttributes: attrs)

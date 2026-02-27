@@ -238,9 +238,10 @@ final class FloatingPanelController: NSPanel {
     
     /// Activate input mode - allows the panel to receive keyboard input
     /// Call this when specific UI buttons are clicked (e.g., "Input" button)
+    /// V1.3: Only activate the panel itself, not the entire app (prevents main window from appearing)
     func activateInputMode() {
         allowsKeyStatus = true
-        NSApp.activate(ignoringOtherApps: true)
+        // Only make this panel key, don't activate entire app to avoid showing main window
         makeKeyAndOrderFront(nil)
     }
     
@@ -520,7 +521,7 @@ final class KeyableFloatingPanel: NSPanel {
     
     func activateInputMode() {
         allowsKeyStatus = true
-        NSApp.activate(ignoringOtherApps: true)
+        // Only make this panel key, don't activate entire app to avoid showing main window
         makeKeyAndOrderFront(nil)
     }
     

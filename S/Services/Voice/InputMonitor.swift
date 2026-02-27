@@ -219,20 +219,20 @@ private enum MultitouchBridge {
 }
 
 /// V9: Advanced Input Monitor for global gestures
-/// Detects Double-Cmd (left or right) and Three-Finger Double-Tap
+/// Detects Double-Option (left or right) and Three-Finger Double-Tap
 /// Per v9.md Section 2: Technical Architecture - Input Layer
 @MainActor
 final class InputMonitor: ObservableObject {
     
     // MARK: - Published State
     
-    @Published private(set) var isDoubleCmdDetected: Bool = false
+    @Published private(set) var isDoubleOptionDetected: Bool = false
     @Published private(set) var isThreeFingerDoubleTapDetected: Bool = false
     
     // MARK: - Callbacks
     
-    /// Called when Double-Cmd is detected
-    var onDoubleCmdTrigger: (() -> Void)?
+    /// Called when Double-Option is detected
+    var onDoubleOptionTrigger: (() -> Void)?
     
     /// Called when Three-Finger Double-Tap is detected
     var onThreeFingerDoubleTap: (() -> Void)?
@@ -242,14 +242,14 @@ final class InputMonitor: ObservableObject {
     private var globalMonitor: Any?
     private var localMonitor: Any?
     
-    // Double-Cmd detection state
-    private var lastCmdPressTime: Date?
-    private var cmdPressCount: Int = 0
+    // Double-Option detection state
+    private var lastOptionPressTime: Date?
+    private var optionPressCount: Int = 0
     private let doubleTapThreshold: TimeInterval = 0.3  // Max time between taps
     private var resetTimer: Timer?
     
     // Track modifier state to detect press events
-    private var wasCmdPressed: Bool = false
+    private var wasOptionPressed: Bool = false
     
     // Three-finger tap detection state
     private var lastThreeFingerTapTime: Date?
@@ -302,7 +302,7 @@ final class InputMonitor: ObservableObject {
         // Start multitouch monitoring
         startMultitouchMonitoring()
         
-        print("⌨️ [InputMonitor] Started monitoring for Double-Cmd and Three-Finger Double-Tap")
+        print("⌨️ [InputMonitor] Started monitoring for Double-Option and Three-Finger Double-Tap")
     }
     
     /// Stop monitoring for input events
@@ -329,41 +329,41 @@ final class InputMonitor: ObservableObject {
         print("⌨️ [InputMonitor] Stopped monitoring")
     }
     
-    // MARK: - Private Methods - Double Cmd Detection
+    // MARK: - Private Methods - Double Option Detection
     
     private func handleFlagsChanged(_ event: NSEvent) {
-        let isCmdPressed = event.modifierFlags.contains(.command)
+        let isOptionPressed = event.modifierFlags.contains(.option)
         
-        // Detect Cmd key DOWN event (transition from not pressed to pressed)
-        if isCmdPressed && !wasCmdPressed {
-            onCmdKeyPressed()
+        // Detect Option key DOWN event (transition from not pressed to pressed)
+        if isOptionPressed && !wasOptionPressed {
+            onOptionKeyPressed()
         }
         
-        wasCmdPressed = isCmdPressed
+        wasOptionPressed = isOptionPressed
     }
     
-    private func onCmdKeyPressed() {
+    private func onOptionKeyPressed() {
         let now = Date()
         
         // Check if this is within the double-tap window
-        if let lastPress = lastCmdPressTime {
+        if let lastPress = lastOptionPressTime {
             let interval = now.timeIntervalSince(lastPress)
             
             if interval < doubleTapThreshold {
-                // Double-Cmd detected!
-                cmdPressCount = 0
-                lastCmdPressTime = nil
+                // Double-Option detected!
+                optionPressCount = 0
+                lastOptionPressTime = nil
                 resetTimer?.invalidate()
                 
-                print("⌨️ [InputMonitor] Double-Cmd DETECTED! (interval: \(String(format: "%.2f", interval))s)")
-                isDoubleCmdDetected = true
+                print("⌨️ [InputMonitor] Double-Option DETECTED! (interval: \(String(format: "%.2f", interval))s)")
+                isDoubleOptionDetected = true
                 
                 // Trigger callback
-                onDoubleCmdTrigger?()
+                onDoubleOptionTrigger?()
                 
                 // Reset detection state after a brief moment
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                    self?.isDoubleCmdDetected = false
+                    self?.isDoubleOptionDetected = false
                 }
                 
                 return
@@ -371,8 +371,8 @@ final class InputMonitor: ObservableObject {
         }
         
         // First press or outside window - start new detection
-        lastCmdPressTime = now
-        cmdPressCount = 1
+        lastOptionPressTime = now
+        optionPressCount = 1
         
         // Set timer to reset if second press doesn't come
         resetTimer?.invalidate()
@@ -384,8 +384,8 @@ final class InputMonitor: ObservableObject {
     }
     
     private func resetDetection() {
-        cmdPressCount = 0
-        lastCmdPressTime = nil
+        optionPressCount = 0
+        lastOptionPressTime = nil
     }
 }
 

@@ -105,7 +105,7 @@ final class AppState {
     }
     
     
-    // MARK: - Input Monitor Setup (Double-Cmd + Three-Finger Double-Tap)
+    // MARK: - Input Monitor Setup (Double-Option + Three-Finger Double-Tap)
     
     private func setupInputMonitor() {
         let handleTrigger: () -> Void = { [weak self] in
@@ -116,11 +116,11 @@ final class AppState {
             }
         }
         
-        inputMonitor.onDoubleCmdTrigger = handleTrigger
+        inputMonitor.onDoubleOptionTrigger = handleTrigger
         inputMonitor.onThreeFingerDoubleTap = handleTrigger
         
         inputMonitor.startMonitoring()
-        print("⌨️ [AppState] Input Monitor initialized (Double-Cmd + Three-Finger Double-Tap)")
+        print("⌨️ [AppState] Input Monitor initialized (Double-Option + Three-Finger Double-Tap)")
     }
     
     // MARK: - Visual Knowledge Base Methods

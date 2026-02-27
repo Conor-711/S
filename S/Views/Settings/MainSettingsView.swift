@@ -13,19 +13,20 @@ struct MainSettingsView: View {
     
     @StateObject private var authService = SupabaseAuthService.shared
     @StateObject private var oauthService = NotionOAuth2Service.shared
-    @StateObject private var slackService = SlackOAuthService.shared
     @State private var schemaState = NotionSchemaState.shared
     
-    @State private var selectedTab: SettingsTab = .account
+    @State private var selectedTab: SettingsTab = .home
     @State private var isInitializingETL: Bool = false
     @State private var etlStatusMessage: String?
     
     enum SettingsTab: String, CaseIterable {
+        case home = "首页"
         case account = "账户"
         case connectors = "Connectors"
         
         var icon: String {
             switch self {
+            case .home: return "house.fill"
             case .account: return "person.circle.fill"
             case .connectors: return "link.circle.fill"
             }
@@ -45,7 +46,7 @@ struct MainSettingsView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 650, height: 480)
+        .frame(width: 1100, height: 780)
         .background(Color(NSColor.windowBackgroundColor))
     }
     
@@ -87,7 +88,7 @@ struct MainSettingsView: View {
             Spacer()
             
             // Version info
-            Text("S v1.2")
+            Text("S v1.3")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(16)
@@ -99,6 +100,20 @@ struct MainSettingsView: View {
     private func statusIndicator(for tab: SettingsTab) -> some View {
         Group {
             switch tab {
+            case .home:
+                // Show count badge
+                let count = CaptureHistoryService.shared.items.count
+                if count > 0 {
+                    Text("\(count)")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Color.blue)
+                        .clipShape(Capsule())
+                } else {
+                    EmptyView()
+                }
             case .account:
                 Circle()
                     .fill(authService.isAuthenticated ? Color.green : Color.gray)
@@ -117,6 +132,8 @@ struct MainSettingsView: View {
     @ViewBuilder
     private var contentView: some View {
         switch selectedTab {
+        case .home:
+            HomeView()
         case .account:
             accountContent
         case .connectors:
@@ -228,8 +245,8 @@ struct MainSettingsView: View {
                     // Notion Connector
                     notionConnectorCard
                     
-                    // Slack Connector (V1.2)
-                    slackConnectorCard
+                    // Obsidian Connector (Coming Soon)
+                    obsidianConnectorCard
                     
                     // Future connectors placeholder
                     comingSoonConnectors
@@ -378,17 +395,17 @@ struct MainSettingsView: View {
         .cornerRadius(12)
     }
     
-    // MARK: - Slack Connector Card (V1.2)
+    // MARK: - Obsidian Connector Card (V1.3)
     
-    private var slackConnectorCard: some View {
+    private var obsidianConnectorCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header with icon
             HStack(spacing: 12) {
-                Image(systemName: "number.square.fill")
+                Image(systemName: "diamond.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.purple, .pink],
+                            colors: [.purple, .indigo],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -398,99 +415,48 @@ struct MainSettingsView: View {
                     .cornerRadius(8)
                 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Slack")
+                    Text("Obsidian")
                         .font(.headline)
-                    Text("工作任务自动发送")
+                    Text("本地知识库同步")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 
                 Spacer()
                 
-                // Status badge
-                if slackService.isAuthenticated {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                        Text("已连接")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(12)
+                // Coming soon badge
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                        .font(.system(size: 10))
+                    Text("即将支持")
+                        .font(.caption)
                 }
+                .foregroundColor(.orange)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.orange.opacity(0.1))
+                .cornerRadius(12)
             }
             
             Divider()
             
-            if slackService.isAuthenticated {
-                // Connected state
-                VStack(alignment: .leading, spacing: 12) {
-                    if let teamName = slackService.teamName {
-                        HStack {
-                            Text("工作区")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(teamName)
-                                .fontWeight(.medium)
-                        }
-                        .font(.subheadline)
-                    }
-                    
-                    if let channelName = slackService.channelName {
-                        HStack {
-                            Text("目标频道")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text("#\(channelName)")
-                                .fontWeight(.medium)
-                        }
-                        .font(.subheadline)
-                    }
-                    
-                    // Info
-                    HStack(spacing: 6) {
-                        Image(systemName: "info.circle")
-                            .foregroundColor(.secondary)
-                        Text("工作类任务将自动发送到此频道")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    
-                    Divider()
-                    
-                    // Actions
+            // Coming soon state
+            VStack(spacing: 12) {
+                Text("连接 Obsidian 后，截图内容将自动保存到您的本地知识库")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                
+                Button(action: {}) {
                     HStack {
-                        Spacer()
-                        
-                        Button("断开连接") {
-                            slackService.disconnect()
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(.red)
+                        Image(systemName: "link")
+                        Text("连接 Obsidian")
                     }
+                    .frame(maxWidth: .infinity)
                 }
-            } else {
-                // Not connected state
-                VStack(spacing: 12) {
-                    Text("连接 Slack 后，工作类任务将自动发送到您选择的频道")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                    
-                    Button(action: connectSlack) {
-                        HStack {
-                            Image(systemName: "link")
-                            Text("连接 Slack")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.purple)
-                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .disabled(true)
             }
         }
         .padding(16)
@@ -508,7 +474,7 @@ struct MainSettingsView: View {
             
             HStack(spacing: 16) {
                 comingSoonItem(name: "Linear", icon: "line.3.horizontal")
-                comingSoonItem(name: "Obsidian", icon: "diamond")
+                comingSoonItem(name: "Slack", icon: "number.square")
             }
         }
         .padding(16)
@@ -577,14 +543,6 @@ struct MainSettingsView: View {
             if oauthService.isAuthenticated && !schemaState.isComplete {
                 await initializeETLAsync()
             }
-        }
-    }
-    
-    // MARK: - Slack Actions (V1.2)
-    
-    private func connectSlack() {
-        Task {
-            await slackService.startOAuthFlow()
         }
     }
     

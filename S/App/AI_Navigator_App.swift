@@ -299,8 +299,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         menu.addItem(NSMenuItem.separator())
         
+        // Settings
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettingsAction), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
+        
+        // Check for Updates
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesAction), keyEquivalent: "")
+        updateItem.target = self
+        menu.addItem(updateItem)
+        
+        menu.addItem(NSMenuItem.separator())
+        
         // Quit
-        let quitItem = NSMenuItem(title: "Quit AI Navigator", action: #selector(quitAction), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit S", action: #selector(quitAction), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         
@@ -321,6 +333,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     @objc private func generateReportAction() {
         appState?.generateKnowledgeReport()
+    }
+    
+    @objc private func checkForUpdatesAction() {
+        #if canImport(Sparkle)
+        SparkleUpdaterController.shared.checkForUpdates()
+        #else
+        print("⚠️ [AppDelegate] Sparkle not available for updates")
+        #endif
     }
     
     @objc private func quitAction() {
@@ -344,9 +364,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hostingController = NSHostingController(rootView: settingsView)
         
         let window = NSWindow(contentViewController: hostingController)
-        window.title = "S - 设置"
+        window.title = "S - Collection"
         window.styleMask = [.titled, .closable, .miniaturizable]
-        window.setContentSize(NSSize(width: 650, height: 480))
+        window.setContentSize(NSSize(width: 1100, height: 780))
         window.center()
         window.isReleasedWhenClosed = false
         

@@ -60,6 +60,9 @@ final class KnowledgeBaseService: ObservableObject {
         isProcessing = true
         lastError = nil
         
+        // Play capture sound effect
+        SoundEffectService.shared.playCaptureSound()
+        
         // Post notification to show floating panel near cursor
         NotificationCenter.default.post(name: .captureEventTriggered, object: nil)
         
