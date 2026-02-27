@@ -1,0 +1,42 @@
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Swift Package Manager
+.build/
+Packages/
+Package.resolved
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+
+# macOS
+.DS_Store
+*.swp
+*~.nib
+
+# Secrets - NEVER commit these files
+S/Config/Secrets.swift
+Secrets.swift
+*.secret
+*.secrets
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# API Keys
+apikeys.plist
+APIKeys.plist
+
+# Temporary files
+*.tmp
+*.temp

@@ -129,10 +129,29 @@ final class KnowledgeBaseService: ObservableObject {
             // Otherwise fall back to legacy saveToNotionIfConfigured
             if NotionSchemaState.shared.isComplete {
                 // Use V1.1 Visual ETL Pipeline with user note
+                // PipelineController handles saving to CaptureHistoryService
                 let _ = await pipelineController.execute(screenshot: screenshot, userNote: userNote)
             } else {
                 // Legacy: Save to configured target
                 await saveToNotionIfConfigured(note: note)
+                
+                // V1.3: Also save to capture history for HomeView display
+                // Create a basic Atom from the analysis for display
+                let atom = Atom(
+                    type: .content,
+                    payload: AtomPayload(
+                        title: analysis.caption,
+                        description: analysis.intent,
+                        category: nil,
+                        sourceUrl: nil,
+                        assigneeName: nil,
+                        dueDate: nil,
+                        todoContext: nil,
+                        userNote: userNote,
+                        capturedAt: ISO8601DateFormatter().string(from: Date())
+                    )
+                )
+                CaptureHistoryService.shared.addCapture(screenshot: screenshot, atom: atom)
             }
             
             // Image data is now out of scope and will be garbage collected
